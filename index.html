@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alfa Quattro — Financial Intelligence</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="app">
+
+<!-- NAV -->
+<nav>
+  <div class="nav-brand">
+    <div class="brand-hex"><span>AQ</span></div>
+    <div>
+      <div class="brand-name">ALFA QUATTRO</div>
+      <div class="brand-tag">FINANCIAL INTELLIGENCE · AQU140926UJ6</div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="pill" id="p1">SIN DATOS</div>
+    <div class="pill" id="p2" style="display:none"></div>
+    <button id="btnReset" onclick="resetApp()">✕ REINICIAR</button>
+  </div>
+</nav>
+
+<!-- TABS -->
+<div class="tabs" id="tabsBar">
+  <div class="tab-list">
+    <button class="tab active" onclick="switchTab(this,'s1')">01 RESUMEN</button>
+    <button class="tab" onclick="switchTab(this,'s2')">02 MÉTRICAS</button>
+    <button class="tab" onclick="switchTab(this,'s3')">03 GRÁFICAS</button>
+    <button class="tab" onclick="switchTab(this,'s4')" id="tabCmp">04 COMPARATIVO</button>
+    <button class="tab" onclick="switchTab(this,'s5')">05 MOVIMIENTOS</button>
+    <button class="tab" onclick="switchTab(this,'s6')">06 ANÁLISIS IA</button>
+  </div>
+</div>
+
+<!-- UPLOAD -->
+<div id="uploadScreen">
+  <div class="upload-wrap">
+    <div class="upload-title">CARGA TUS<br><em>ARCHIVOS</em></div>
+    <div class="upload-sub">1 O 2 PERÍODOS · EXCEL .XLSX / .XLS / .CSV</div>
+    <div class="upload-slots">
+      <div class="slot" id="slot0" onclick="triggerFile(0)">
+        <div class="slot-num">01</div>
+        <div class="slot-label">PRIMER PERÍODO (ej. ENERO)</div>
+        <input type="file" id="fi0" accept=".xlsx,.xls,.csv" onchange="onFile(0,this)">
+        <button class="slot-btn">SELECCIONAR ARCHIVO</button>
+        <div class="slot-name" id="sn0"></div>
+      </div>
+      <div class="slot" id="slot1" onclick="triggerFile(1)">
+        <div class="slot-num">02</div>
+        <div class="slot-label">SEGUNDO PERÍODO (ej. FEBRERO) · OPCIONAL</div>
+        <input type="file" id="fi1" accept=".xlsx,.xls,.csv" onchange="onFile(1,this)">
+        <button class="slot-btn">SELECCIONAR ARCHIVO</button>
+        <div class="slot-name" id="sn1"></div>
+      </div>
+    </div>
+    <div class="upload-actions">
+      <button class="btn-primary" id="btnAnalizar" onclick="startAnalysis()" disabled>ANALIZAR</button>
+      <button class="btn-sec" onclick="loadDemo()">VER DEMO</button>
+    </div>
+    <div class="upload-hint">LOS ARCHIVOS SE PROCESAN LOCALMENTE · NINGÚN DATO SE SUBE A INTERNET</div>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div id="loadScreen">
+  <div class="load-box">
+    <div class="load-title">PROCESANDO</div>
+    <div class="load-track"><div class="load-fill" id="loadFill"></div></div>
+    <div class="load-msg" id="loadMsg">LEYENDO ARCHIVOS...</div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dash">
+
+  <!-- ══════════════════════════════════════
+       SECCIÓN 01 · RESUMEN GENERAL
+  ══════════════════════════════════════ -->
+  <div id="tabS1">
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="sec-num">01</div>
+        <div class="sec-info">
+          <div class="sec-title">RESUMEN GENERAL</div>
+          <div class="sec-desc">VISIÓN EJECUTIVA · PRINCIPALES INDICADORES DEL PERÍODO</div>
+        </div>
+      </div>
+      <div class="sec-divider"></div>
+
+      <!-- KPIs fila 1: dinero -->
+      <div class="kpi-row" id="kpiRow1"></div>
+      <!-- KPIs fila 2: operación -->
+      <div class="kpi-row" id="kpiRow2"></div>
+
+      <!-- Obra top + tarjeta top -->
+      <div class="grid2" style="margin-top:14px">
+        <div class="card fade d1">
+          <div class="card-hd">Obra con Mayor Gasto</div>
+          <div id="topObraCard"></div>
+        </div>
+        <div class="card fade d2">
+          <div class="card-hd">Tarjeta / Persona Más Activa</div>
+          <div id="topTarjetaCard"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SECCIÓN 02 · MÉTRICAS AVANZADAS
+  ══════════════════════════════════════ -->
+  <div id="tabS2" style="display:none">
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="sec-num">02</div>
+        <div class="sec-info">
+          <div class="sec-title">MÉTRICAS AVANZADAS</div>
+          <div class="sec-desc">RATIOS, EFICIENCIA, RIESGOS Y ANOMALÍAS</div>
+        </div>
+      </div>
+      <div class="sec-divider"></div>
+
+      <!-- Burn rate -->
+      <div class="grid4" style="margin-bottom:14px">
+        <div class="metric-card fade d1">
+          <div class="metric-title">BURN RATE DIARIO</div>
+          <div class="metric-val" id="mBurnD" style="color:var(--accent)">—</div>
+          <div class="metric-sub">gasto promedio por día</div>
+        </div>
+        <div class="metric-card fade d2">
+          <div class="metric-title">BURN RATE SEMANAL</div>
+          <div class="metric-val" id="mBurnW" style="color:var(--accent)">—</div>
+          <div class="metric-sub">proyección 7 días</div>
+        </div>
+        <div class="metric-card fade d3">
+          <div class="metric-title">BURN RATE MENSUAL</div>
+          <div class="metric-val" id="mBurnM" style="color:var(--accent)">—</div>
+          <div class="metric-sub">proyección 30 días</div>
+        </div>
+        <div class="metric-card fade d4">
+          <div class="metric-title">DÍAS ANALIZADOS</div>
+          <div class="metric-val" id="mDays" style="color:var(--p)">—</div>
+          <div class="metric-sub">período de datos</div>
+        </div>
+      </div>
+
+      <!-- Concentración + outliers -->
+      <div class="grid2" style="margin-bottom:14px">
+        <div class="card fade d1">
+          <div class="card-hd">Concentración de Proveedores</div>
+          <div id="concProvCard"></div>
+        </div>
+        <div class="card fade d2">
+          <div class="card-hd">Transacciones Inusuales (Outliers)</div>
+          <div id="outliersCard"></div>
+        </div>
+      </div>
+
+      <!-- Top 10 proveedores -->
+      <div class="card fade d3" style="margin-bottom:14px">
+        <div class="card-hd">Top 10 Proveedores <span class="card-val" id="provTotal"></span></div>
+        <div class="bar-list" id="mTopProv"></div>
+      </div>
+
+      <!-- Alertas -->
+      <div class="card fade d4">
+        <div class="card-hd">Alertas Automáticas</div>
+        <div class="alerts" id="alertsBox"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SECCIÓN 03 · GRÁFICAS
+  ══════════════════════════════════════ -->
+  <div id="tabS3" style="display:none">
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="sec-num">03</div>
+        <div class="sec-info">
+          <div class="sec-title">GRÁFICAS & VISUALIZACIONES</div>
+          <div class="sec-desc">DISTRIBUCIÓN, TENDENCIAS Y PATRONES DE GASTO</div>
+        </div>
+      </div>
+      <div class="sec-divider"></div>
+
+      <div class="grid3" style="margin-bottom:14px">
+        <div class="card fade d1"><div class="card-hd">Gasto por Categoría</div><div class="bar-list" id="gCat"></div></div>
+        <div class="card fade d2"><div class="card-hd">Distribución · Donut</div><div class="donut-wrap" id="gDonut"></div></div>
+        <div class="card fade d3"><div class="card-hd">Gasto por Frente</div><div class="bar-list" id="gFrente"></div></div>
+      </div>
+
+      <div class="grid2" style="margin-bottom:14px">
+        <div class="card fade d1"><div class="card-hd">Gasto por Proyecto</div><div class="bar-list" id="gProy"></div></div>
+        <div class="card fade d2"><div class="card-hd">Gasto por Usuario / Tarjeta</div><div class="bar-list" id="gUser"></div></div>
+      </div>
+
+      <div class="card fade" style="margin-bottom:14px">
+        <div class="card-hd">Evolución de Gasto Diario <span class="card-val" id="tlTot"></span></div>
+        <div id="tlLegend" class="period-legend"></div>
+        <div class="tl-wrap"><div class="tl" id="gTimeline"></div></div>
+      </div>
+
+      <div class="card fade">
+        <div class="card-hd">Dispersión de Importes · Detección Visual de Outliers <span style="font-family:var(--f2);font-size:9px;color:var(--muted)">● normal &nbsp; ◉ inusual</span></div>
+        <div class="scatter" id="gScatter"></div>
+        <div style="font-family:var(--f2);font-size:9px;color:var(--muted);margin-top:6px" id="scatterInfo"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SECCIÓN 04 · COMPARATIVO
+  ══════════════════════════════════════ -->
+  <div id="tabS4" style="display:none">
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="sec-num">04</div>
+        <div class="sec-info">
+          <div class="sec-title">COMPARATIVO</div>
+          <div class="sec-desc">ANÁLISIS ENTRE DOS PERÍODOS</div>
+        </div>
+      </div>
+      <div class="sec-divider"></div>
+      <div id="noCmp" style="text-align:center;padding:60px;font-family:var(--f2);font-size:12px;color:var(--muted)">
+        Carga dos archivos en la pantalla de inicio para habilitar el comparativo.
+      </div>
+      <div id="yesCmp" style="display:none">
+        <div class="kpi-row" id="kpiCmp"></div>
+        <div class="card fade" style="margin-bottom:14px;margin-top:14px">
+          <div class="card-hd">Gasto por Categoría — P1 vs P2</div>
+          <div id="cmpCat"></div>
+        </div>
+        <div class="card fade d1" style="margin-bottom:14px">
+          <div class="card-hd">Gasto por Proyecto — P1 vs P2</div>
+          <div id="cmpProy"></div>
+        </div>
+        <div class="card fade d2" style="margin-bottom:14px">
+          <div class="card-hd">Evolución Temporal Comparada <span class="card-val" id="cmpTlTot"></span></div>
+          <div id="cmpTlLegend" class="period-legend"></div>
+          <div class="tl-wrap"><div class="tl" id="cmpTimeline"></div></div>
+        </div>
+        <div class="grid2">
+          <div class="card fade d1"><div class="card-hd">Top Proveedores P1 vs P2</div><div id="cmpProv"></div></div>
+          <div class="card fade d2"><div class="card-hd">Proveedores Nuevos en P2</div><div class="bar-list" id="cmpNew"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SECCIÓN 05 · MOVIMIENTOS
+  ══════════════════════════════════════ -->
+  <div id="tabS5" style="display:none">
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="sec-num">05</div>
+        <div class="sec-info">
+          <div class="sec-title">MOVIMIENTOS</div>
+          <div class="sec-desc">TABLA COMPLETA · FILTRABLE Y BUSCABLE</div>
+        </div>
+      </div>
+      <div class="sec-divider"></div>
+      <div class="tbl-outer">
+        <div class="tbl-bar">
+          <div class="tbl-bar-l">
+            <input class="t-input" id="tSearch" placeholder="Buscar descripción..." oninput="renderTable()">
+            <select class="t-sel" id="tCat" onchange="renderTable()"><option value="">Todas las categorías</option></select>
+            <select class="t-sel" id="tProy" onchange="renderTable()"><option value="">Todos los proyectos</option></select>
+            <select class="t-sel" id="tPer" onchange="renderTable()"><option value="">Todos los períodos</option></select>
+          </div>
+          <div class="tbl-cnt" id="tblCnt"></div>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th>PERÍODO</th><th>FECHA</th><th>DESCRIPCIÓN</th><th>CATEGORÍA</th>
+              <th>PROYECTO</th><th>FRENTE</th><th>USUARIO</th><th>IMPORTE</th>
+            </tr></thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       SECCIÓN 06 · ANÁLISIS IA
+  ══════════════════════════════════════ -->
+  <div id="tabS6" style="display:none">
+    <div class="sec">
+      <div class="sec-hd">
+        <div class="sec-num">06</div>
+        <div class="sec-info">
+          <div class="sec-title">ANÁLISIS DE INTELIGENCIA ARTIFICIAL</div>
+          <div class="sec-desc">RESUMEN EJECUTIVO GENERADO AUTOMÁTICAMENTE · LISTO PARA DIRECCIÓN</div>
+        </div>
+      </div>
+      <div class="sec-divider"></div>
+      <div class="ai-wrap fade">
+        <div class="ai-top">
+          <div class="ai-badge">IA ACTIVA · CLAUDE SONNET</div>
+          <button class="ai-btn" id="aiBtn" onclick="runAI()">GENERAR ANÁLISIS EJECUTIVO</button>
+        </div>
+        <div class="ai-body" id="aiBody">
+          <span class="ai-thinking">Presiona el botón para generar un análisis ejecutivo completo listo para presentar a dirección...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /dash -->
+</div><!-- /app -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config/config.js"></script>
+<script src="config/theme.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/data.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/kpis.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

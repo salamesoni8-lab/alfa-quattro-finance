@@ -1,0 +1,9 @@
+# Secrets - DO NOT COMMIT
+# config/config.js  <- NOTE: We ARE committing this since it contains only the anon key (public)
+
+# Build artifacts
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+*.log

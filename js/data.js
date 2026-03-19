@@ -39,29 +39,132 @@ function onFile(i, inp) {
 async function startAnalysis() {
   show('loadScreen');
   const toLoad = FILES_RAW.filter(Boolean);
-  for (let i = 0; i < toLoad.length; i++) {
-    setLoad(`PROCESANDO ARCHIVO ${i+1} DE ${toLoad.length}...`, 15 + i*40);
-    PERIODS[i] = await readExcel(toLoad[i]);
-    P_NAMES[i] = toLoad[i].name.replace(/\.(xlsx?|csv)$/i,'').slice(0,22);
+  const useEdge = !!(CONFIG.supabase.url && CONFIG.supabase.anonKey);
 
-    // Save parsed rows to Supabase in the background (non-blocking)
-    if (PERIODS[i] && PERIODS[i].length > 0) {
-      const dbRows = PERIODS[i].map(r => toDbRow(r));
-      saveTransacciones(dbRows).then(result => {
-        if (result.errors.length > 0) {
-          console.warn('[Supabase] Some rows failed to save:', result.errors);
-        } else {
-          console.log(`[Supabase] Saved ${result.inserted} rows from period ${i+1}.`);
+  for (let i = 0; i < toLoad.length; i++) {
+    const file = toLoad[i];
+    P_NAMES[i] = file.name.replace(/\.(xlsx?|csv)$/i, '').slice(0, 22).toUpperCase();
+
+    if (useEdge) {
+      try {
+        setLoad(`SUBIENDO ARCHIVO ${i+1} DE ${toLoad.length}...`, 5);
+        const result = await uploadToEdgeFunction(file, (uploadPct, phase) => {
+          if (phase === 'upload') {
+            // upload byte transfer: 5% → 65%
+            setLoad(`SUBIENDO ARCHIVO ${i+1} DE ${toLoad.length} · ${uploadPct}%`, 5 + uploadPct * 0.6);
+          } else {
+            // server processing: 65% → 88%, animated by timer inside uploadToEdgeFunction
+            setLoad('ANALIZANDO Y GUARDANDO EN SUPABASE...', uploadPct);
+          }
+        });
+        PERIODS[i] = (result.rows || []).map(edgeRowToLocal).filter(r => r.importe > 0);
+        console.log(`[Edge] Archivo ${i+1}: ${result.inserted} nuevas, ${result.after_filter} procesadas.`);
+      } catch (err) {
+        console.warn('[Edge] Error, usando parser local:', err.message);
+        setLoad(`PROCESANDO LOCALMENTE...`, 40 + i*25);
+        PERIODS[i] = await readExcel(file);
+        if (PERIODS[i]?.length > 0) {
+          saveTransacciones(PERIODS[i].map(r => toDbRow(r)))
+            .catch(e => console.warn('[Supabase]', e));
         }
-      }).catch(err => console.warn('[Supabase] saveTransacciones failed:', err));
+      }
+    } else {
+      // Local mode (no Supabase configured)
+      setLoad(`PROCESANDO ARCHIVO ${i+1} DE ${toLoad.length}...`, 15 + i*40);
+      PERIODS[i] = await readExcel(file);
     }
   }
+
   if (!FILES_RAW[1]) PERIODS[1] = null;
-  setLoad('CALCULANDO MÉTRICAS...', 88);
+  setLoad('CALCULANDO MÉTRICAS...', 94);
   await sleep(200);
   setLoad('LISTO', 100);
-  await sleep(250);
+  await sleep(300);
   initDash();
+}
+
+/**
+ * Upload a file to the Edge Function via XHR.
+ * Calls onProgress(pct, 'upload') during byte transfer (0-100).
+ * Calls onProgress(pct, 'server') during server processing (65-88).
+ * Returns the parsed response JSON.
+ */
+function uploadToEdgeFunction(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const url = `${CONFIG.supabase.url}/functions/v1/procesar-archivo`;
+    const fd = new FormData();
+    fd.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Authorization', `Bearer ${CONFIG.supabase.anonKey}`);
+    xhr.setRequestHeader('apikey', CONFIG.supabase.anonKey);
+    xhr.timeout = 180000; // 3 min for very large files
+
+    // Real upload progress (byte transfer)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100), 'upload');
+    };
+
+    // Once upload is complete, animate the bar while server processes
+    let processingTimer = null;
+    let serverPct = 65;
+    xhr.upload.onload = () => {
+      serverPct = 65;
+      processingTimer = setInterval(() => {
+        serverPct = Math.min(88, serverPct + 0.3);
+        onProgress(Math.round(serverPct), 'server');
+      }, 100);
+    };
+
+    xhr.onload = () => {
+      if (processingTimer) clearInterval(processingTimer);
+      try {
+        const result = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(result);
+        } else {
+          reject(new Error(result.error || `HTTP ${xhr.status}`));
+        }
+      } catch (e) {
+        reject(new Error(`Respuesta inválida del servidor: ${xhr.responseText.slice(0, 200)}`));
+      }
+    };
+
+    xhr.onerror   = () => { if (processingTimer) clearInterval(processingTimer); reject(new Error('Error de red')); };
+    xhr.ontimeout = () => { if (processingTimer) clearInterval(processingTimer); reject(new Error('Tiempo de espera agotado (>3 min)')); };
+
+    xhr.send(fd);
+  });
+}
+
+/**
+ * Convert a row returned by the Edge Function into the local dashboard format.
+ */
+function edgeRowToLocal(r) {
+  return {
+    banco:        r.banco        || '',
+    fecha:        r.fecha        || '',
+    no_op:        r.no_op        || '',
+    descripcion:  r.descripcion  || '',
+    importe:      parseFloat(r.importe)  || 0,
+    titular:      r.titular      || '',
+    efecto:       r.efecto       || '',
+    uuid:         r.uuid         || '',
+    rfc_emisor:   r.rfc_emisor   || '',
+    razon_social: r.razon_social || '',
+    ieps:         parseFloat(r.ieps)     || 0,
+    iva_8:        parseFloat(r.iva_8)    || 0,
+    iva_16:       parseFloat(r.iva_16)   || 0,
+    subtotal:     parseFloat(r.subtotal) || 0,
+    total:        parseFloat(r.total)    || 0,
+    categoria:    r.categoria    || 'Sin categoría',
+    proyecto:     r.proyecto     || '',
+    frente:       r.frente       || '',
+    documento:    r.documento    || '',
+    fechaObj:     r.fecha ? new Date(r.fecha) : null,
+    tarjeta:      r.titular      || '', // alias for dashboard compatibility
+  };
 }
 
 /**

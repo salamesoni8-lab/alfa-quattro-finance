@@ -407,7 +407,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ inserted, total_parsed: rawRows.length, after_filter: dbRows.length, errors }),
+      JSON.stringify({ inserted, total_parsed: rawRows.length, after_filter: dbRows.length, errors, rows: dbRows }),
       { status: 200, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
     );
   } catch (err) {

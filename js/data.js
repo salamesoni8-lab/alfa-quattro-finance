@@ -1,4 +1,7 @@
 // data.js — Lectura y normalización de archivos Excel + Supabase integration
+// Parser inteligente: detecta automáticamente las 19 columnas requeridas,
+// ignora columnas extra, elimina duplicados por NO_OP, filtra EFECTO=INGRESO,
+// normaliza PROYECTO y fechas a YYYY-MM-DD.
 
 let FILES_RAW = [null, null];
 let PERIODS   = [null, null];
@@ -62,24 +65,29 @@ async function startAnalysis() {
 }
 
 /**
- * Map a normalised local row to the transacciones DB schema.
+ * Map a normalised local row to the transacciones DB schema (all 19 columns).
  */
 function toDbRow(r) {
-  // Convert localised date string (DD/MM/YYYY) to ISO (YYYY-MM-DD) for Postgres
-  let fecha = null;
-  if (r.fechaObj instanceof Date && !isNaN(r.fechaObj)) {
-    const d = r.fechaObj;
-    fecha = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
   return {
-    fecha,
-    descripcion: r.descripcion || null,
-    importe:     r.importe     || null,
-    categoria:   r.categoria   || null,
-    proyecto:    r.proyecto    || null,
-    frente:      r.frente      || null,
-    titular:     r.tarjeta     || null,
-    banco:       r.banco       || null,
+    banco:        r.banco        || null,
+    fecha:        r.fecha        || null,   // already YYYY-MM-DD from normalize()
+    no_op:        r.no_op        || null,
+    descripcion:  r.descripcion  || null,
+    importe:      r.importe      || null,
+    titular:      r.titular      || null,
+    efecto:       r.efecto       || null,
+    uuid:         r.uuid         || null,
+    rfc_emisor:   r.rfc_emisor   || null,
+    razon_social: r.razon_social || null,
+    ieps:         r.ieps         || null,
+    iva_8:        r.iva_8        || null,
+    iva_16:       r.iva_16       || null,
+    subtotal:     r.subtotal     || null,
+    total:        r.total        || null,
+    categoria:    r.categoria    || null,
+    proyecto:     r.proyecto     || null,
+    frente:       r.frente       || null,
+    documento:    r.documento    || null,
   };
 }
 
@@ -94,15 +102,28 @@ async function loadFromSupabase() {
 
     // Convert DB rows back to the local row format expected by the dashboard
     const rows = data.map(r => ({
-      fecha:       r.fecha ? new Date(r.fecha).toLocaleDateString('es-MX') : '',
-      fechaObj:    r.fecha ? new Date(r.fecha) : null,
-      descripcion: r.descripcion || '',
-      importe:     parseFloat(r.importe) || 0,
-      categoria:   r.categoria  || 'Sin categoría',
-      proyecto:    r.proyecto   || '',
-      frente:      r.frente     || '',
-      tarjeta:     r.titular    || '',
-      banco:       r.banco      || '',
+      banco:        r.banco        || '',
+      fecha:        r.fecha        || '',
+      no_op:        r.no_op        || '',
+      descripcion:  r.descripcion  || '',
+      importe:      parseFloat(r.importe) || 0,
+      titular:      r.titular      || '',
+      efecto:       r.efecto       || '',
+      uuid:         r.uuid         || '',
+      rfc_emisor:   r.rfc_emisor   || '',
+      razon_social: r.razon_social || '',
+      ieps:         parseFloat(r.ieps)    || 0,
+      iva_8:        parseFloat(r.iva_8)   || 0,
+      iva_16:       parseFloat(r.iva_16)  || 0,
+      subtotal:     parseFloat(r.subtotal)|| 0,
+      total:        parseFloat(r.total)   || 0,
+      categoria:    r.categoria    || 'Sin categoría',
+      proyecto:     r.proyecto     || '',
+      frente:       r.frente       || '',
+      documento:    r.documento    || '',
+      // Dashboard helpers
+      fechaObj: r.fecha ? new Date(r.fecha) : null,
+      tarjeta:  r.titular || '',
     })).filter(r => r.importe > 0);
 
     if (rows.length === 0) return false;
@@ -117,6 +138,79 @@ async function loadFromSupabase() {
   }
 }
 
+// ─────────────────────────────────────────────
+// Smart parser — column name mapping
+// ─────────────────────────────────────────────
+const _DB_COLUMNS = new Set([
+  'banco','fecha','no_op','descripcion','importe','titular',
+  'efecto','uuid','rfc_emisor','razon_social','ieps','iva_8',
+  'iva_16','subtotal','total','categoria','proyecto','frente','documento',
+]);
+
+const _NUMERIC_COLS = new Set(['importe','ieps','iva_8','iva_16','subtotal','total']);
+
+const _COL_MAP = {
+  banco:'banco', bank:'banco', 'banco emisor':'banco',
+  fecha:'fecha', date:'fecha', 'fecha operacion':'fecha',
+  'fecha de operacion':'fecha', 'fecha operacion':'fecha',
+  no_op:'no_op', 'no op':'no_op', 'num operacion':'no_op',
+  'numero de operacion':'no_op', folio:'no_op', referencia:'no_op',
+  'no. referencia':'no_op',
+  descripcion:'descripcion', descripcion:'descripcion',
+  concepto:'descripcion', description:'descripcion', detalle:'descripcion',
+  'descripcion del movimiento':'descripcion',
+  importe:'importe', monto:'importe', amount:'importe',
+  cargo:'importe', abono:'importe', 'monto operacion':'importe',
+  titular:'titular', usuario:'titular', tarjeta:'titular', empleado:'titular',
+  'nombre titular':'titular',
+  efecto:'efecto', tipo:'efecto', 'tipo movimiento':'efecto',
+  'tipo de movimiento':'efecto', 'tipo de transaccion':'efecto',
+  uuid:'uuid', 'uuid transaccion':'uuid', 'id transaccion':'uuid',
+  'clave rastreo':'uuid', 'clave de rastreo':'uuid',
+  rfc_emisor:'rfc_emisor', rfc:'rfc_emisor', 'rfc emisor':'rfc_emisor',
+  razon_social:'razon_social', 'razon social':'razon_social', proveedor:'razon_social',
+  ieps:'ieps', 'ieps trasladado':'ieps',
+  iva_8:'iva_8', 'iva 8':'iva_8', 'iva 8%':'iva_8', 'iva8%':'iva_8',
+  iva_16:'iva_16', 'iva 16':'iva_16', 'iva 16%':'iva_16', 'iva16%':'iva_16', iva:'iva_16',
+  subtotal:'subtotal', 'sub total':'subtotal',
+  total:'total',
+  categoria:'categoria', category:'categoria', giro:'categoria',
+  proyecto:'proyecto', obra:'proyecto', project:'proyecto',
+  frente:'frente', 'frente de trabajo':'frente',
+  documento:'documento', factura:'documento', 'num factura':'documento',
+  'folio fiscal':'documento',
+};
+
+function _normKey(k) {
+  return String(k).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ');
+}
+
+function _resolveHeader(h) {
+  const nk = _normKey(h);
+  if (_COL_MAP[nk]) return _COL_MAP[nk];
+  if (_DB_COLUMNS.has(nk)) return nk;
+  return null;
+}
+
+function _normalizeDate(v) {
+  if (v instanceof Date && !isNaN(v)) {
+    const y = v.getFullYear();
+    const m = String(v.getMonth()+1).padStart(2,'0');
+    const d = String(v.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof v === 'number') {
+    return _normalizeDate(new Date(Math.round((v-25569)*86400000)));
+  }
+  const s = String(v||'').trim();
+  if (!s) return null;
+  let match = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (match) return `${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}`;
+  match = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (match) return `${match[3]}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`;
+  return s;
+}
+
 function readExcel(file) {
   return new Promise((res, rej) => {
     const reader = new FileReader();
@@ -124,47 +218,109 @@ function readExcel(file) {
       try {
         const wb = XLSX.read(e.target.result, { type:'binary', cellDates:true });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(ws, { header:1 });
+        const raw = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+
+        // Auto-detect header row (first row with a recognised column name)
         let hr = 0;
-        for (let i = 0; i < Math.min(12, raw.length); i++) {
-          if (raw[i] && raw[i].some(c => c && /banco|fecha|importe/i.test(String(c)))) { hr=i; break; }
+        for (let i = 0; i < Math.min(15, raw.length); i++) {
+          if (raw[i] && raw[i].some(c => _resolveHeader(String(c||'')) !== null)) { hr=i; break; }
         }
         const headers = (raw[hr]||[]).map(h => h ? String(h).trim() : '');
-        const rows = [];
+        const rawRows = [];
         for (let i = hr+1; i < raw.length; i++) {
-          if (!raw[i] || raw[i].every(c => !c)) continue;
-          const o = {}; headers.forEach((h,j) => { o[h] = raw[i][j]; }); rows.push(o);
+          if (!raw[i] || raw[i].every(c => c==='' || c===null || c===undefined)) continue;
+          const o = {}; headers.forEach((h,j) => { o[h] = raw[i][j]; }); rawRows.push(o);
         }
-        res(normalize(rows));
+        res(normalize(rawRows));
       } catch(err) { rej(err); }
     };
     reader.readAsBinaryString(file);
   });
 }
 
+/**
+ * Normalise raw rows from bank Excel:
+ *  - Map to 19 DB columns, ignore extras
+ *  - Filter EFECTO = 'INGRESO'
+ *  - Deduplicate by NO_OP
+ *  - Normalise PROYECTO (uppercase, trim)
+ *  - Normalise FECHA → YYYY-MM-DD
+ *  - Remove completely empty rows
+ */
 function normalize(rows) {
-  const get = (r, ...keys) => {
-    for (const k of keys) {
-      const f = Object.keys(r).find(rk => rk.toLowerCase().replace(/\s/g,'').includes(k.toLowerCase().replace(/\s/g,'')));
-      if (f && r[f] !== undefined && r[f] !== '') return r[f];
-    } return '';
-  };
-  return rows.map(r => {
-    let fecha = get(r,'fecha');
-    if (fecha instanceof Date && !isNaN(fecha)) fecha = fecha.toLocaleDateString('es-MX');
-    else if (typeof fecha === 'number') fecha = new Date(Math.round((fecha-25569)*86400000)).toLocaleDateString('es-MX');
-    const imp = parseFloat(String(get(r,'importe','total','monto')).replace(/,/g,'')) || 0;
-    return {
-      fecha: String(fecha||''), fechaObj: parseDate(String(fecha||'')),
-      descripcion: String(get(r,'descripcion','descripción')||''),
-      importe: imp,
-      categoria: String(get(r,'categoria','categoría')||'Sin categoría'),
-      proyecto:  String(get(r,'proyecto')||''),
-      frente:    String(get(r,'frente')||''),
-      tarjeta:   String(get(r,'tarjeta','usuario')||''),
-      banco:     String(get(r,'banco')||''),
-    };
-  }).filter(r => r.importe > 0);
+  if (!rows.length) return [];
+
+  // Build header→dbCol map from first row keys
+  const sampleKeys = Object.keys(rows[0]);
+  const headerMap = {};
+  for (const h of sampleKeys) {
+    const db = _resolveHeader(h);
+    if (db) headerMap[h] = db;
+  }
+
+  const seenNoOp = new Set();
+  const result = [];
+
+  for (const raw of rows) {
+    const r = {};
+    for (const [rawCol, dbCol] of Object.entries(headerMap)) {
+      const v = raw[rawCol];
+      if (v === null || v === undefined || v === '') continue;
+      if (_NUMERIC_COLS.has(dbCol)) {
+        const n = parseFloat(String(v).replace(/,/g,''));
+        if (!isNaN(n)) r[dbCol] = n;
+      } else if (dbCol === 'fecha') {
+        const d = _normalizeDate(v);
+        if (d) r[dbCol] = d;
+      } else if (dbCol === 'proyecto') {
+        r[dbCol] = String(v).trim().toUpperCase().replace(/\s+/g,' ');
+      } else {
+        r[dbCol] = String(v).trim();
+      }
+    }
+
+    if (Object.keys(r).length === 0) continue;
+
+    // Filter: only EFECTO = 'INGRESO'
+    const efecto = String(r.efecto||'').trim().toUpperCase();
+    if (efecto && efecto !== 'INGRESO') continue;
+
+    // Deduplicate by NO_OP
+    const noOp = String(r.no_op||'').trim();
+    if (noOp) {
+      if (seenNoOp.has(noOp)) continue;
+      seenNoOp.add(noOp);
+    }
+
+    // Build dashboard-compatible row (adds fechaObj and tarjeta alias)
+    result.push({
+      // All 19 DB columns
+      banco:        r.banco        || '',
+      fecha:        r.fecha        || '',
+      no_op:        r.no_op        || '',
+      descripcion:  r.descripcion  || '',
+      importe:      r.importe      || 0,
+      titular:      r.titular      || '',
+      efecto:       r.efecto       || '',
+      uuid:         r.uuid         || '',
+      rfc_emisor:   r.rfc_emisor   || '',
+      razon_social: r.razon_social || '',
+      ieps:         r.ieps         || 0,
+      iva_8:        r.iva_8        || 0,
+      iva_16:       r.iva_16       || 0,
+      subtotal:     r.subtotal     || 0,
+      total:        r.total        || 0,
+      categoria:    r.categoria    || 'Sin categoría',
+      proyecto:     r.proyecto     || '',
+      frente:       r.frente       || '',
+      documento:    r.documento    || '',
+      // Dashboard helpers
+      fechaObj: r.fecha ? new Date(r.fecha) : null,
+      tarjeta:  r.titular || '',  // alias kept for dashboard compatibility
+    });
+  }
+
+  return result.filter(r => r.importe > 0);
 }
 
 function getAllData() {

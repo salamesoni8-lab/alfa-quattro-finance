@@ -1,23 +1,5 @@
 {
-  "framework": null,
   "buildCommand": "node build.js",
   "outputDirectory": ".",
-  "installCommand": "echo ok",
-  "headers": [
-    {
-      "source": "/js/(.*)",
-      "headers": [{ "key": "Content-Type", "value": "text/javascript" }]
-    },
-    {
-      "source": "/css/(.*)",
-      "headers": [{ "key": "Content-Type", "value": "text/css" }]
-    },
-    {
-      "source": "/config/(.*)",
-      "headers": [
-        { "key": "Content-Type", "value": "text/javascript" },
-        { "key": "Cache-Control", "value": "no-store" }
-      ]
-    }
-  ]
+  "framework": null
 }
